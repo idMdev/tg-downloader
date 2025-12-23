@@ -28,6 +28,36 @@ except ImportError:
 class TelegramDownloader:
     """Main class for downloading files from Telegram channels"""
     
+    # Maximum allowed length for file extensions
+    MAX_EXTENSION_LENGTH = 10
+    
+    # Common MIME type to extension mapping (for validation)
+    MIME_TO_EXT = {
+        'video/mp4': '.mp4',
+        'video/mpeg': '.mpeg',
+        'video/quicktime': '.mov',
+        'video/x-msvideo': '.avi',
+        'video/x-matroska': '.mkv',
+        'video/webm': '.webm',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/bmp': '.bmp',
+        'application/pdf': '.pdf',
+        'application/zip': '.zip',
+        'application/x-rar-compressed': '.rar',
+        'application/x-7z-compressed': '.7z',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'audio/mpeg': '.mp3',
+        'audio/ogg': '.ogg',
+        'audio/wav': '.wav',
+        'text/plain': '.txt',
+    }
+    
     def __init__(self, api_id: str, api_hash: str, phone: str, 
                  download_path: str = "./downloads",
                  history_file: str = "download_history.json",
@@ -177,14 +207,20 @@ class TelegramDownloader:
         # Trim to max length (accounting for extension)
         # Use encode/decode to handle multi-byte characters properly
         max_text_length = max_length - len(extension)
+        
+        # Ensure we have positive length for text
+        if max_text_length < 1:
+            return None
+        
         if len(text) > max_text_length:
             # Truncate and ensure we don't break multi-byte characters
             text = text[:max_text_length].strip()
             # Encode to bytes and back to ensure valid UTF-8
             try:
                 text = text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
-            except:
-                pass
+            except UnicodeError:
+                # If we can't encode/decode properly, just strip and hope for the best
+                text = text.strip()
         
         # Ensure the result is not empty after sanitization
         if not text or not text.strip():
@@ -194,6 +230,33 @@ class TelegramDownloader:
         filename = text + extension
         
         return filename
+    
+    def _get_safe_extension(self, mime_type: Optional[str], fallback: str = '.bin') -> str:
+        """
+        Get a safe file extension from mime type
+        
+        Args:
+            mime_type: MIME type string
+            fallback: Fallback extension if mime type is unknown
+        
+        Returns:
+            Safe file extension with dot prefix
+        """
+        if not mime_type:
+            return fallback
+        
+        # Check if we have a known mapping
+        if mime_type in self.MIME_TO_EXT:
+            return self.MIME_TO_EXT[mime_type]
+        
+        # Try extracting the subtype as extension
+        if '/' in mime_type:
+            ext = mime_type.split('/')[-1]
+            # Validate extension length and characters
+            if len(ext) <= self.MAX_EXTENSION_LENGTH and ext.isalnum():
+                return f'.{ext}'
+        
+        return fallback
     
     def _validate_and_secure_path(self, filename: str) -> Optional[Path]:
         """
@@ -221,17 +284,23 @@ class TelegramDownloader:
             resolved_path = file_path.resolve()
             resolved_download = self.download_path.resolve()
             
-            # Check that the resolved path is within the download directory
-            # Use os.path.commonpath to verify the paths share the same base
+            # Use is_relative_to if available (Python 3.9+), otherwise use commonpath
             try:
-                common = os.path.commonpath([str(resolved_path), str(resolved_download)])
-                if common != str(resolved_download):
+                # Python 3.9+ method
+                if not resolved_path.is_relative_to(resolved_download):
                     print(f"Security Warning: Path traversal attempt blocked: {filename}")
                     return None
-            except ValueError:
-                # Paths are on different drives (Windows)
-                print(f"Security Warning: Path on different drive blocked: {filename}")
-                return None
+            except AttributeError:
+                # Fallback for Python 3.7-3.8
+                try:
+                    common = os.path.commonpath([str(resolved_path), str(resolved_download)])
+                    if common != str(resolved_download):
+                        print(f"Security Warning: Path traversal attempt blocked: {filename}")
+                        return None
+                except ValueError:
+                    # Paths are on different drives (Windows)
+                    print(f"Security Warning: Path on different drive blocked: {filename}")
+                    return None
             
             return resolved_path
         except Exception as e:
@@ -403,8 +472,7 @@ class TelegramDownloader:
                         if original_filename:
                             ext = Path(original_filename).suffix
                         else:
-                            ext_name = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
-                            ext = f".{ext_name}"
+                            ext = self._get_safe_extension(doc.mime_type)
                         
                         # Create filename from message text
                         filename = self._sanitize_filename(message.text, ext)
@@ -422,11 +490,8 @@ class TelegramDownloader:
                                 filename = f"file_{message.id}{ext}"
                         else:
                             # Use mime type for extension, with fallback to 'bin'
-                            ext = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
-                            # Limit extension length to prevent issues
-                            if len(ext) > 10:
-                                ext = 'bin'
-                            filename = f"file_{message.id}.{ext}"
+                            ext = self._get_safe_extension(doc.mime_type)
+                            filename = f"file_{message.id}{ext}"
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
