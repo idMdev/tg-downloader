@@ -492,7 +492,7 @@ class TelegramDownloader:
                             # Use mime type for extension, with fallback to 'bin'
                             ext = self._get_safe_extension(doc.mime_type)
                             filename = f"file_{message.id}{ext}"
-                    
+                    print(f"After defining filename: {filename}")
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
                         print(f"Skipping {filename} (file type not allowed)")
