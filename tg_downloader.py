@@ -14,11 +14,11 @@ import argparse
 import asyncio
 from pathlib import Path
 from datetime import datetime
-from typing import List, Set, Optional
+from typing import List, Set, Optional, Union
 
 try:
     from telethon import TelegramClient
-    from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, DocumentAttributeVideo
+    from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, DocumentAttributeVideo, PeerChannel
 except ImportError:
     print("Error: Required packages not installed.")
     print("Please run: pip install -r requirements.txt")
@@ -412,7 +412,7 @@ class TelegramDownloader:
         await self.client.start(phone=self.phone)
         print("Connected successfully!")
     
-    async def download_from_channel(self, channel: str, 
+    async def download_from_channel(self, channel: Union[str, int], 
                                     file_types: Optional[List[str]] = None,
                                     max_size_mb: Optional[float] = None,
                                     limit: int = 200):
@@ -420,7 +420,7 @@ class TelegramDownloader:
         Download files from a Telegram channel
         
         Args:
-            channel: Channel username or ID
+            channel: Channel username (str) or channel ID (int)
             file_types: List of allowed file extensions (e.g., ['jpg', 'pdf'])
             max_size_mb: Maximum file size in MB
             limit: Maximum number of messages to check
@@ -440,8 +440,15 @@ class TelegramDownloader:
         
         try:
             # Get channel entity
+            # If channel is an integer ID, wrap it with PeerChannel for proper handling
             print(f"Attempting to get channel entity for: {channel}")
-            entity = await self.client.get_entity(channel)
+            if isinstance(channel, int):
+                print(f"Channel is an integer ID, using PeerChannel wrapper")
+                entity_input = PeerChannel(channel_id=channel)
+            else:
+                entity_input = channel
+            
+            entity = await self.client.get_entity(entity_input)
             print(f"Successfully retrieved channel entity: {entity.title if hasattr(entity, 'title') else channel}")
             
             # Iterate through messages
@@ -702,6 +709,12 @@ Examples:
         print("Error: No channel specified!")
         print("Use --channel argument or set 'channel' in config.json")
         sys.exit(1)
+    
+    # Convert numeric string to integer for channel ID support
+    # Supports both positive IDs and negative IDs (like -1001234567890)
+    if isinstance(channel, str) and channel.lstrip('-').isdigit():
+        channel = int(channel)
+        print(f"Detected numeric channel ID: {channel}")
     
     # Get download path
     download_path = args.dest or config.get('download_path', './downloads')

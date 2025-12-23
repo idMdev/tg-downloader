@@ -78,6 +78,7 @@ Create a `config.json` file based on `config.example.json`:
 ```
 
 **Configuration Options:**
+- `channel`: Can be either a channel username (e.g., `"@channelname"`) or a numeric channel ID (e.g., `1234567890` or `-1001234567890`). Both formats are supported.
 - `keywords` (optional): Array of keywords to filter files. Files will only be downloaded if their filename or the message text contains at least one of these keywords (case-insensitive). Leave empty or omit to download all files.
 - `video_quality` (optional): Minimum video quality filter. Options: `"high"` (1080p+), `"medium"` (720p+), `"low"` (480p+), or specific resolution like `"1080p"`, `"720p"`, `"480p"`, `"360p"`. Videos below the specified quality will be skipped.
 
@@ -103,8 +104,12 @@ Environment variables take precedence over config file values.
 # Download from channel specified in config.json
 python tg_downloader.py
 
-# Download from a specific channel
+# Download from a specific channel (by username)
 python tg_downloader.py --channel @channelname
+
+# Download from a specific channel (by numeric ID)
+python tg_downloader.py --channel 1234567890
+python tg_downloader.py --channel -1001234567890
 
 # Download specific file types
 python tg_downloader.py --channel @channelname --types pdf,jpg,png
