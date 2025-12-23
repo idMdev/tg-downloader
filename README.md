@@ -9,7 +9,7 @@ A smart Telegram channel file downloader that automatically downloads files from
 - 📝 **Intelligent Naming**: Files are automatically named using message text/captions for easy identification
 - 🎯 **File Type Filtering**: Download only specific file types (e.g., PDF, images, videos)
 - 📏 **Size Filtering**: Limit downloads by maximum file size
-- 🎬 **Video Quality Filtering**: Filter videos by resolution (1080p, 720p, 480p, etc.)
+- 🎬 **Video Downsizing**: Automatically downsize videos after download using ffmpeg (optional)
 - 🔍 **Keyword Filtering**: Filter files by keywords in filename or message text
 - 🔒 **Secure Credentials**: Store API keys in GitHub Secrets or environment variables
 - 📊 **Download History**: Maintains a JSON history of all downloaded files
@@ -25,6 +25,11 @@ A smart Telegram channel file downloader that automatically downloads files from
    - Create an application to get your `api_id` and `api_hash`
 
 2. **Python 3.7+** installed on your system
+
+3. **ffmpeg** (optional) - Required only if you want to downsize videos after download
+   - **Linux**: `sudo apt install ffmpeg` or `sudo yum install ffmpeg`
+   - **macOS**: `brew install ffmpeg`
+   - **Windows**: Download from https://ffmpeg.org/download.html
 
 ## Installation
 
@@ -73,14 +78,15 @@ Create a `config.json` file based on `config.example.json`:
   "download_path": "./downloads",
   "file_types": ["jpg", "png", "pdf", "mp4", "zip"],
   "max_file_size_mb": 100,
-  "keywords": ["report", "document"]
+  "keywords": ["report", "document"],
+  "output_quality": "720p"
 }
 ```
 
 **Configuration Options:**
 - `channel`: Can be either a channel username (e.g., `"@channelname"`) or a numeric channel ID (e.g., `1234567890` or `-1001234567890`). Both formats are supported.
 - `keywords` (optional): Array of keywords to filter files. Files will only be downloaded if their filename or the message text contains at least one of these keywords (case-insensitive). Leave empty or omit to download all files.
-- `video_quality` (optional): Minimum video quality filter. Options: `"high"` (1080p+), `"medium"` (720p+), `"low"` (480p+), or specific resolution like `"1080p"`, `"720p"`, `"480p"`, `"360p"`. Videos below the specified quality will be skipped.
+- `output_quality` (optional): Target quality for downsizing videos after download using ffmpeg. Options: `"720p"`, `"480p"`, `"360p"`, `"240p"`, etc. Videos will be downsized to the specified resolution. Requires ffmpeg to be installed.
 
 **Note on Filenames:** Files are automatically named using the message text/caption from Telegram. The text is sanitized to remove invalid characters and shortened to prevent filesystem issues. If no text is available, the original filename is used.
 
@@ -117,9 +123,9 @@ python tg_downloader.py --channel @channelname --types pdf,jpg,png
 # Filter by keywords (searches filename and message text)
 python tg_downloader.py --channel @channelname --keywords report,summary,document
 
-# Filter videos by quality (high=1080p+, medium=720p+, low=480p+)
-python tg_downloader.py --channel @channelname --video-quality high
-python tg_downloader.py --channel @channelname --video-quality 720p
+# Downsize videos after download (requires ffmpeg)
+python tg_downloader.py --channel @channelname --output-quality 720p
+python tg_downloader.py --channel @channelname --output-quality 480p
 
 # Specify custom download directory
 python tg_downloader.py --channel @channelname --dest ./my_downloads
@@ -133,8 +139,8 @@ python tg_downloader.py --channel @channelname --limit 500
 # Combine multiple filters
 python tg_downloader.py --channel @channelname --types pdf --keywords report,annual --max-size 20
 
-# Download only high-quality videos from a channel
-python tg_downloader.py --channel @videos --types mp4 --video-quality 1080p
+# Download videos and downsize them to 720p
+python tg_downloader.py --channel @videos --types mp4 --output-quality 720p
 ```
 
 ### Auto-Update from GitHub

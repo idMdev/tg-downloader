@@ -62,7 +62,7 @@ class TelegramDownloader:
                  download_path: str = "./downloads",
                  history_file: str = "download_history.json",
                  keywords: Optional[List[str]] = None,
-                 video_quality: Optional[str] = None):
+                 output_quality: Optional[str] = None):
         """
         Initialize the Telegram downloader
         
@@ -73,7 +73,7 @@ class TelegramDownloader:
             download_path: Directory to save downloaded files
             history_file: JSON file to track downloaded files
             keywords: List of keywords to filter files (case-insensitive)
-            video_quality: Video quality filter ('high', 'medium', 'low', or resolution like '1080p', '720p', '480p')
+            output_quality: Target video quality for downsizing after download (e.g., '720p', '480p', '360p')
         """
         self.api_id = api_id
         self.api_hash = api_hash
@@ -83,7 +83,7 @@ class TelegramDownloader:
         self.downloaded_files: Set[int] = set()
         self.client = None
         self.keywords = [k.lower() for k in keywords] if keywords else None
-        self.video_quality = video_quality.lower() if video_quality else None
+        self.output_quality = output_quality.lower() if output_quality else None
         
         # Create download directory if it doesn't exist
         self.download_path.mkdir(parents=True, exist_ok=True)
@@ -327,58 +327,29 @@ class TelegramDownloader:
         
         return False
     
-    def _get_video_quality(self, doc) -> Optional[str]:
+    def _downsize_video_with_ffmpeg(self, file_path: Path, target_quality: str) -> bool:
         """
-        Get video quality/resolution from document attributes
+        Downsize a video file using ffmpeg
         
         Args:
-            doc: Document object from MessageMediaDocument
+            file_path: Path to the video file
+            target_quality: Target quality (e.g., '720p', '480p', '360p')
         
         Returns:
-            Quality string (e.g., '1080p', '720p') or None if not a video
+            True if successful, False otherwise
         """
-        for attr in doc.attributes:
-            if isinstance(attr, DocumentAttributeVideo):
-                height = attr.h
-                if height >= 2160:
-                    return '4k'
-                elif height >= 1440:
-                    return '1440p'
-                elif height >= 1080:
-                    return '1080p'
-                elif height >= 720:
-                    return '720p'
-                elif height >= 480:
-                    return '480p'
-                elif height >= 360:
-                    return '360p'
-                else:
-                    return '240p'
-        return None
-    
-    def _is_video_quality_allowed(self, doc) -> bool:
-        """
-        Check if video quality matches the filter
+        import subprocess
+        import shutil
         
-        Args:
-            doc: Document object from MessageMediaDocument
+        # Check if ffmpeg is available
+        if not shutil.which('ffmpeg'):
+            print(f"Warning: ffmpeg not found. Skipping video downsizing for {file_path.name}")
+            return False
         
-        Returns:
-            True if video quality is allowed or no filter specified, False otherwise
-        """
-        if not self.video_quality:
-            return True
-        
-        if not self._is_video(doc):
-            return True  # Not a video, no quality filter applies
-        
-        quality = self._get_video_quality(doc)
-        if not quality:
-            return True  # Can't determine quality, allow it
-        
-        # Parse the quality filter
-        quality_hierarchy = {
+        # Map quality to height
+        quality_map = {
             '4k': 2160,
+            '2160p': 2160,
             '1440p': 1440,
             '1080p': 1080,
             '720p': 720,
@@ -387,21 +358,64 @@ class TelegramDownloader:
             '240p': 240
         }
         
-        filter_quality = self.video_quality
+        target_height = quality_map.get(target_quality)
+        if not target_height:
+            print(f"Warning: Invalid target quality '{target_quality}'. Skipping downsizing.")
+            return False
         
-        # Map 'high', 'medium', 'low' to resolutions
-        if filter_quality == 'high':
-            filter_quality = '1080p'
-        elif filter_quality == 'medium':
-            filter_quality = '720p'
-        elif filter_quality == 'low':
-            filter_quality = '480p'
+        # Create temporary output file
+        output_path = file_path.parent / f"{file_path.stem}_temp{file_path.suffix}"
         
-        # If filter is a specific resolution, check if video meets or exceeds it
-        if filter_quality in quality_hierarchy and quality in quality_hierarchy:
-            return quality_hierarchy[quality] >= quality_hierarchy[filter_quality]
-        
-        return True
+        try:
+            # Build ffmpeg command
+            # -i: input file
+            # -vf scale: scale video to target height (width=-2 maintains aspect ratio with even number)
+            # -c:v libx264: use H.264 codec
+            # -crf 23: constant rate factor (quality, 23 is good balance)
+            # -preset medium: encoding speed/compression trade-off
+            # -c:a copy: copy audio without re-encoding
+            cmd = [
+                'ffmpeg',
+                '-i', str(file_path),
+                '-vf', f'scale=-2:{target_height}',
+                '-c:v', 'libx264',
+                '-crf', '23',
+                '-preset', 'medium',
+                '-c:a', 'copy',
+                '-y',  # Overwrite output file without asking
+                str(output_path)
+            ]
+            
+            print(f"  Downsizing video to {target_quality}...")
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode == 0:
+                # Replace original with downsized version
+                output_path.replace(file_path)
+                print(f"  ✓ Video downsized to {target_quality}")
+                return True
+            else:
+                print(f"  ✗ ffmpeg failed: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
+                # Clean up temp file if it exists
+                if output_path.exists():
+                    output_path.unlink()
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print(f"  ✗ ffmpeg timeout while processing {file_path.name}")
+            if output_path.exists():
+                output_path.unlink()
+            return False
+        except Exception as e:
+            print(f"  ✗ Error during video downsizing: {e}")
+            if output_path.exists():
+                output_path.unlink()
+            return False
     
     async def connect(self):
         """Connect to Telegram"""
@@ -432,7 +446,7 @@ class TelegramDownloader:
         print(f"File types filter: {file_types if file_types else 'All'}")
         print(f"Max file size: {max_size_mb if max_size_mb else 'No limit'} MB")
         print(f"Keywords filter: {self.keywords if self.keywords else 'None'}")
-        print(f"Video quality filter: {self.video_quality if self.video_quality else 'None'}")
+        print(f"Output quality: {self.output_quality if self.output_quality else 'None'}")
         print(f"Checking last {limit} messages...\n")
         
         downloaded_count = 0
@@ -526,12 +540,6 @@ class TelegramDownloader:
                         print(f"Skipping {filename} (size {size_mb:.2f} MB exceeds limit)")
                         continue
                     
-                    # Check video quality filter
-                    if not self._is_video_quality_allowed(doc):
-                        quality = self._get_video_quality(doc)
-                        print(f"Skipping {filename} (video quality {quality} does not meet filter: {self.video_quality})")
-                        continue
-                    
                     # Check keyword filter
                     if not self._matches_keyword(filename, message.text):
                         print(f"Skipping {filename} (does not match keyword filter)")
@@ -539,10 +547,6 @@ class TelegramDownloader:
                     
                     # Download the file
                     file_info = f"{filename} ({doc.size / (1024 * 1024):.2f} MB)"
-                    if self._is_video(doc):
-                        quality = self._get_video_quality(doc)
-                        if quality:
-                            file_info = f"{filename} ({doc.size / (1024 * 1024):.2f} MB, {quality})"
                     print(f"Downloading: {file_info}")
                     
                     # Validate path security
@@ -557,6 +561,10 @@ class TelegramDownloader:
                         self.downloaded_files.add(message.id)
                         downloaded_count += 1
                         print(f"✓ Downloaded: {filename}")
+                        
+                        # Downsize video if output_quality is specified and file is a video
+                        if self.output_quality and self._is_video(doc):
+                            self._downsize_video_with_ffmpeg(file_path, self.output_quality)
                     except Exception as e:
                         print(f"✗ Error downloading {filename if filename else f'file from message {message.id}'}: {e}")
                 
@@ -657,9 +665,9 @@ Examples:
   # Filter by keywords (searches filename and message text)
   python tg_downloader.py --channel @mychannel --keywords report,summary,document
   
-  # Filter videos by quality
-  python tg_downloader.py --channel @mychannel --video-quality high
-  python tg_downloader.py --channel @mychannel --video-quality 1080p
+  # Downsize videos after download
+  python tg_downloader.py --channel @mychannel --output-quality 720p
+  python tg_downloader.py --channel @mychannel --output-quality 480p
   
   # Use environment variables for credentials (recommended)
   export TG_API_ID=your_api_id
@@ -681,8 +689,8 @@ Examples:
                        help='Download destination directory (overrides config)')
     parser.add_argument('--max-size', type=float,
                        help='Maximum file size in MB (overrides config)')
-    parser.add_argument('--video-quality',
-                       help='Minimum video quality: high (1080p+), medium (720p+), low (480p+), or specific (1080p, 720p, 480p, 360p) (overrides config)')
+    parser.add_argument('--output-quality',
+                       help='Target quality for video downsizing after download: 720p, 480p, 360p, etc. (overrides config)')
     parser.add_argument('--limit', type=int, default=100,
                        help='Maximum number of messages to check (default: 100)')
     
@@ -737,8 +745,8 @@ Examples:
     # Get max file size
     max_size_mb = args.max_size or config.get('max_file_size_mb')
     
-    # Get video quality
-    video_quality = args.video_quality or config.get('video_quality')
+    # Get output quality
+    output_quality = args.output_quality or config.get('output_quality')
     
     # Create downloader instance
     downloader = TelegramDownloader(
@@ -747,7 +755,7 @@ Examples:
         phone=phone,
         download_path=download_path,
         keywords=keywords,
-        video_quality=video_quality
+        output_quality=output_quality
     )
     
     try:
