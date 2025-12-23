@@ -238,6 +238,7 @@ class TelegramDownloader:
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
+                        print(f"Skipping {filename} (file type not allowed)")
                         continue
                     
                     # Check keyword filter
