@@ -8,6 +8,7 @@ A smart Telegram channel file downloader that automatically downloads files from
 - 📁 **Smart Duplicate Detection**: Tracks downloaded files to avoid re-downloading
 - 🎯 **File Type Filtering**: Download only specific file types (e.g., PDF, images, videos)
 - 📏 **Size Filtering**: Limit downloads by maximum file size
+- 🔍 **Keyword Filtering**: Filter files by keywords in filename or message text
 - 🔒 **Secure Credentials**: Store API keys in GitHub Secrets or environment variables
 - 📊 **Download History**: Maintains a JSON history of all downloaded files
 - 🔄 **Scheduled Execution**: Can be run as a cron job or Windows Task Scheduler task
@@ -69,9 +70,13 @@ Create a `config.json` file based on `config.example.json`:
   "channel": "CHANNEL_USERNAME_OR_ID",
   "download_path": "./downloads",
   "file_types": ["jpg", "png", "pdf", "mp4", "zip"],
-  "max_file_size_mb": 100
+  "max_file_size_mb": 100,
+  "keywords": ["report", "document"]
 }
 ```
+
+**Configuration Options:**
+- `keywords` (optional): Array of keywords to filter files. Files will only be downloaded if their filename or the message text contains at least one of these keywords (case-insensitive). Leave empty or omit to download all files.
 
 ### Method 2: Environment Variables (Recommended for Security)
 
@@ -99,6 +104,9 @@ python tg_downloader.py --channel @channelname
 # Download specific file types
 python tg_downloader.py --channel @channelname --types pdf,jpg,png
 
+# Filter by keywords (searches filename and message text)
+python tg_downloader.py --channel @channelname --keywords report,summary,document
+
 # Specify custom download directory
 python tg_downloader.py --channel @channelname --dest ./my_downloads
 
@@ -107,6 +115,9 @@ python tg_downloader.py --channel @channelname --max-size 50
 
 # Check more messages (default is 100)
 python tg_downloader.py --channel @channelname --limit 500
+
+# Combine multiple filters
+python tg_downloader.py --channel @channelname --types pdf --keywords report,annual --max-size 20
 ```
 
 ### Auto-Update from GitHub
@@ -288,6 +299,19 @@ python tg_downloader.py --channel @photos --types jpg,png,jpeg,gif
 
 # Only videos under 100MB
 python tg_downloader.py --channel @videos --types mp4,mkv,avi --max-size 100
+```
+
+### Filter by keywords
+
+```bash
+# Download files containing "invoice" or "receipt" in filename or message text
+python tg_downloader.py --channel @business --keywords invoice,receipt
+
+# Download reports (case-insensitive matching)
+python tg_downloader.py --channel @reports --keywords report,quarterly,annual
+
+# Combine keyword and type filters
+python tg_downloader.py --channel @docs --types pdf --keywords important,urgent
 ```
 
 ## Contributing
