@@ -42,17 +42,31 @@ jobs:
     
     - name: Create config file
       run: |
-        cat > config.json << EOF
-        {
-          "api_id": "${{ secrets.TG_API_ID }}",
-          "api_hash": "${{ secrets.TG_API_HASH }}",
-          "phone": "${{ secrets.TG_PHONE }}",
-          "channel": "${{ github.event.inputs.channel || secrets.TG_CHANNEL }}",
-          "download_path": "./downloads",
-          "file_types": $(if [ -n "${{ github.event.inputs.file_types }}" ]; then echo '["${{ github.event.inputs.file_types }}"]' | sed 's/,/","/g'; else echo '[]'; fi),
-          "max_file_size_mb": ${{ github.event.inputs.max_size || 100 }}
+        # Create config file with proper JSON formatting
+        python3 << 'PYTHON_EOF'
+        import json
+        import os
+        
+        # Parse file types from input
+        file_types_input = "${{ github.event.inputs.file_types }}"
+        if file_types_input:
+            file_types = [t.strip() for t in file_types_input.split(',')]
+        else:
+            file_types = []
+        
+        config = {
+            "api_id": "${{ secrets.TG_API_ID }}",
+            "api_hash": "${{ secrets.TG_API_HASH }}",
+            "phone": "${{ secrets.TG_PHONE }}",
+            "channel": "${{ github.event.inputs.channel || secrets.TG_CHANNEL }}",
+            "download_path": "./downloads",
+            "file_types": file_types,
+            "max_file_size_mb": int("${{ github.event.inputs.max_size || 100 }}")
         }
-        EOF
+        
+        with open('config.json', 'w') as f:
+            json.dump(config, f, indent=2)
+        PYTHON_EOF
     
     - name: Run Telegram Downloader
       env:

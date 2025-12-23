@@ -20,9 +20,6 @@ echo "Downloading latest version from GitHub..."
 if curl -sSL "$REPO_URL" -o "$SCRIPT_NAME"; then
     echo "✓ Successfully updated $SCRIPT_NAME"
     
-    # Make it executable
-    chmod +x "$SCRIPT_NAME"
-    
     # Show version info if available
     if command -v python3 &> /dev/null; then
         echo ""
