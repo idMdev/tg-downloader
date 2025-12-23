@@ -139,6 +139,44 @@ class TelegramDownloader:
         # Check if any keyword is found in the combined text
         return any(keyword in search_text for keyword in self.keywords)
     
+    def _sanitize_filename(self, text: str, extension: str, max_length: int = 150) -> str:
+        """
+        Convert message text to a safe filename
+        
+        Args:
+            text: Message text to convert to filename
+            extension: File extension (including dot, e.g., '.pdf')
+            max_length: Maximum filename length (default: 150)
+        
+        Returns:
+            Sanitized filename with extension
+        """
+        if not text or not text.strip():
+            return None
+        
+        # Replace newlines with spaces and strip whitespace
+        text = text.replace('\n', ' ').replace('\r', ' ').strip()
+        
+        # Remove or replace characters that are invalid in filenames
+        # Invalid chars: / \ : * ? " < > |
+        invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+        for char in invalid_chars:
+            text = text.replace(char, '_')
+        
+        # Replace multiple spaces with single space
+        while '  ' in text:
+            text = text.replace('  ', ' ')
+        
+        # Trim to max length (accounting for extension)
+        max_text_length = max_length - len(extension)
+        if len(text) > max_text_length:
+            text = text[:max_text_length].strip()
+        
+        # Add extension
+        filename = text + extension
+        
+        return filename
+    
     async def connect(self):
         """Connect to Telegram"""
         session_name = f"session_{self.phone}"
@@ -192,17 +230,33 @@ class TelegramDownloader:
                 if isinstance(message.media, MessageMediaDocument):
                     doc = message.media.document
                     filename = None
+                    original_filename = None
                     
-                    # Get filename from attributes
+                    # Get original filename from attributes
                     for attr in doc.attributes:
                         if hasattr(attr, 'file_name'):
-                            filename = attr.file_name
+                            original_filename = attr.file_name
                             break
                     
+                    # Try to use message text as filename
+                    if message.text:
+                        # Get extension from original filename or mime type
+                        if original_filename:
+                            ext = Path(original_filename).suffix
+                        else:
+                            ext_name = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
+                            ext = f".{ext_name}"
+                        
+                        # Create filename from message text
+                        filename = self._sanitize_filename(message.text, ext)
+                    
+                    # Fall back to original filename or generated name
                     if not filename:
-                        # Generate filename from mime type and ID
-                        ext = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
-                        filename = f"file_{message.id}.{ext}"
+                        if original_filename:
+                            filename = original_filename
+                        else:
+                            ext = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
+                            filename = f"file_{message.id}.{ext}"
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
@@ -234,7 +288,13 @@ class TelegramDownloader:
                 
                 # Handle photos
                 elif isinstance(message.media, MessageMediaPhoto):
-                    filename = f"photo_{message.id}.jpg"
+                    # Try to use message text as filename
+                    if message.text:
+                        filename = self._sanitize_filename(message.text, '.jpg')
+                    
+                    # Fall back to default photo naming
+                    if not filename:
+                        filename = f"photo_{message.id}.jpg"
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
