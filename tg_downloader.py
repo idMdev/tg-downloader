@@ -228,7 +228,6 @@ class TelegramDownloader:
         
         # Add extension
         filename = text + extension
-        print(f"File name is: {filename}")
         return filename
     
     def _get_safe_extension(self, mime_type: Optional[str], fallback: str = '.bin') -> str:
@@ -441,9 +440,12 @@ class TelegramDownloader:
         
         try:
             # Get channel entity
+            print(f"Attempting to get channel entity for: {channel}")
             entity = await self.client.get_entity(channel)
+            print(f"Successfully retrieved channel entity: {entity.title if hasattr(entity, 'title') else channel}")
             
             # Iterate through messages
+            print(f"Starting to iterate through messages (limit: {limit})...")
             async for message in self.client.iter_messages(entity, limit=limit):
                 # Skip if message has no media
                 if not message.media:
@@ -452,10 +454,12 @@ class TelegramDownloader:
                 # Skip if already downloaded
                 if message.id in self.downloaded_files:
                     skipped_count += 1
+                    print(f"Skipping message {message.id} - already downloaded")
                     continue
                 
                 # Handle documents (files)
                 if isinstance(message.media, MessageMediaDocument):
+                    print(f"Processing document from message {message.id}")
                     doc = message.media.document
                     filename = None
                     original_filename = None
@@ -464,10 +468,12 @@ class TelegramDownloader:
                     for attr in doc.attributes:
                         if hasattr(attr, 'file_name'):
                             original_filename = attr.file_name
+                            print(f"Found original filename in attributes: {original_filename}")
                             break
                     
                     # Try to use message text as filename
                     if message.text:
+                        print(f"Attempting to create filename from message text: {message.text[:50]}...")
                         # Get extension from original filename or mime type
                         if original_filename:
                             ext = Path(original_filename).suffix
@@ -476,9 +482,14 @@ class TelegramDownloader:
                         
                         # Create filename from message text
                         filename = self._sanitize_filename(message.text, ext)
+                        if filename:
+                            print(f"Created filename from message text: {filename}")
+                        else:
+                            print(f"Message text sanitization returned None")
                     
                     # Fall back to original filename or generated name
                     if not filename:
+                        print(f"Falling back to alternative filename generation")
                         if original_filename:
                             # Sanitize original filename to prevent path traversal
                             ext = Path(original_filename).suffix
@@ -488,11 +499,15 @@ class TelegramDownloader:
                             if not filename:
                                 ext = Path(original_filename).suffix or '.bin'
                                 filename = f"file_{message.id}{ext}"
+                                print(f"Sanitization failed, using generated name: {filename}")
+                            else:
+                                print(f"Using sanitized original filename: {filename}")
                         else:
                             # Use mime type for extension, with fallback to 'bin'
                             ext = self._get_safe_extension(doc.mime_type)
                             filename = f"file_{message.id}{ext}"
-                    print(f"After defining filename: {filename}")
+                            print(f"No original filename, using generated name: {filename}")
+                    
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
                         print(f"Skipping {filename} (file type not allowed)")
@@ -530,22 +545,27 @@ class TelegramDownloader:
                         continue
                     
                     try:
+                        print(f"Attempting to download document to: {file_path}")
                         await message.download_media(file=str(file_path))
                         self.downloaded_files.add(message.id)
                         downloaded_count += 1
                         print(f"✓ Downloaded: {filename}")
                     except Exception as e:
-                        print(f"✗ Error downloading {filename}: {e}")
+                        print(f"✗ Error downloading {filename if filename else f'file from message {message.id}'}: {e}")
                 
                 # Handle photos
                 elif isinstance(message.media, MessageMediaPhoto):
+                    print(f"Processing photo from message {message.id}")
+                    filename = None  # Initialize filename before use
                     # Try to use message text as filename
                     if message.text:
+                        print(f"Attempting to create filename from message text for photo")
                         filename = self._sanitize_filename(message.text, '.jpg')
                     
                     # Fall back to default photo naming
                     if not filename:
                         filename = f"photo_{message.id}.jpg"
+                        print(f"Using default photo filename: {filename}")
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
@@ -567,15 +587,17 @@ class TelegramDownloader:
                         continue
                     
                     try:
+                        print(f"Attempting to download photo to: {file_path}")
                         await message.download_media(file=str(file_path))
                         self.downloaded_files.add(message.id)
                         downloaded_count += 1
                         print(f"✓ Downloaded: {filename}")
                     except Exception as e:
-                        print(f"✗ Error downloading {filename}: {e}")
+                        print(f"✗ Error downloading {filename if filename else f'photo from message {message.id}'}: {e}")
             
             # Save history after downloading
             self._save_history()
+            print(f"Download history saved to {self.history_file}")
             
             print(f"\n{'='*50}")
             print(f"Download Summary:")
