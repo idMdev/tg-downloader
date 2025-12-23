@@ -12,6 +12,8 @@ import json
 import re
 import argparse
 import asyncio
+import subprocess
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Set, Optional, Union
@@ -30,6 +32,11 @@ class TelegramDownloader:
     
     # Maximum allowed length for file extensions
     MAX_EXTENSION_LENGTH = 10
+    
+    # ffmpeg encoding constants
+    FFMPEG_CRF = 23  # Constant Rate Factor for video quality (lower = better quality, 18-28 is reasonable range)
+    FFMPEG_TIMEOUT = 300  # Timeout in seconds for ffmpeg processing (5 minutes)
+    FFMPEG_ERROR_MSG_LENGTH = 200  # Maximum length for error message display
     
     # Common MIME type to extension mapping (for validation)
     MIME_TO_EXT = {
@@ -338,9 +345,6 @@ class TelegramDownloader:
         Returns:
             True if successful, False otherwise
         """
-        import subprocess
-        import shutil
-        
         # Check if ffmpeg is available
         if not shutil.which('ffmpeg'):
             print(f"Warning: ffmpeg not found. Skipping video downsizing for {file_path.name}")
@@ -371,7 +375,7 @@ class TelegramDownloader:
             # -i: input file
             # -vf scale: scale video to target height (width=-2 maintains aspect ratio with even number)
             # -c:v libx264: use H.264 codec
-            # -crf 23: constant rate factor (quality, 23 is good balance)
+            # -crf: constant rate factor (quality)
             # -preset medium: encoding speed/compression trade-off
             # -c:a copy: copy audio without re-encoding
             cmd = [
@@ -379,7 +383,7 @@ class TelegramDownloader:
                 '-i', str(file_path),
                 '-vf', f'scale=-2:{target_height}',
                 '-c:v', 'libx264',
-                '-crf', '23',
+                '-crf', str(self.FFMPEG_CRF),
                 '-preset', 'medium',
                 '-c:a', 'copy',
                 '-y',  # Overwrite output file without asking
@@ -391,7 +395,7 @@ class TelegramDownloader:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=300  # 5 minute timeout
+                timeout=self.FFMPEG_TIMEOUT
             )
             
             if result.returncode == 0:
@@ -400,7 +404,8 @@ class TelegramDownloader:
                 print(f"  ✓ Video downsized to {target_quality}")
                 return True
             else:
-                print(f"  ✗ ffmpeg failed: {result.stderr.decode('utf-8', errors='ignore')[:200]}")
+                error_msg = result.stderr.decode('utf-8', errors='ignore')[:self.FFMPEG_ERROR_MSG_LENGTH]
+                print(f"  ✗ ffmpeg failed: {error_msg}")
                 # Clean up temp file if it exists
                 if output_path.exists():
                     output_path.unlink()
