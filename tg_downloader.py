@@ -415,7 +415,7 @@ class TelegramDownloader:
     async def download_from_channel(self, channel: str, 
                                     file_types: Optional[List[str]] = None,
                                     max_size_mb: Optional[float] = None,
-                                    limit: int = 100):
+                                    limit: int = 200):
         """
         Download files from a Telegram channel
         
