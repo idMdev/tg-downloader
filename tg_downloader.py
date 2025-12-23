@@ -712,7 +712,8 @@ Examples:
     
     # Convert numeric string to integer for channel ID support
     # Supports both positive IDs and negative IDs (like -1001234567890)
-    if isinstance(channel, str) and channel.lstrip('-').isdigit():
+    # Excludes usernames starting with @ to avoid any confusion
+    if isinstance(channel, str) and not channel.startswith('@') and channel.lstrip('-').isdigit():
         channel = int(channel)
         print(f"Detected numeric channel ID: {channel}")
     
