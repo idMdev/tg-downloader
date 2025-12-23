@@ -9,6 +9,7 @@ to avoid duplicates. It supports filtering by file type, size, and keywords.
 import os
 import sys
 import json
+import re
 import argparse
 import asyncio
 from pathlib import Path
@@ -166,19 +167,76 @@ class TelegramDownloader:
         for char in invalid_chars:
             text = text.replace(char, '_')
         
-        # Replace multiple spaces with single space
-        while '  ' in text:
-            text = text.replace('  ', ' ')
+        # Remove path traversal components and dots at start
+        text = text.replace('..', '_')
+        text = text.lstrip('.')
+        
+        # Replace multiple spaces with single space using regex
+        text = re.sub(r' +', ' ', text)
         
         # Trim to max length (accounting for extension)
+        # Use encode/decode to handle multi-byte characters properly
         max_text_length = max_length - len(extension)
         if len(text) > max_text_length:
+            # Truncate and ensure we don't break multi-byte characters
             text = text[:max_text_length].strip()
+            # Encode to bytes and back to ensure valid UTF-8
+            try:
+                text = text.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
+            except:
+                pass
+        
+        # Ensure the result is not empty after sanitization
+        if not text or not text.strip():
+            return None
         
         # Add extension
         filename = text + extension
         
         return filename
+    
+    def _validate_and_secure_path(self, filename: str) -> Optional[Path]:
+        """
+        Validate that the filename is safe and construct a secure path
+        
+        Args:
+            filename: The filename to validate
+        
+        Returns:
+            Secure Path object within download directory, or None if unsafe
+        """
+        # Get just the filename component (remove any path separators)
+        safe_name = os.path.basename(filename)
+        
+        # Additional check: ensure no path separators remain
+        if os.sep in safe_name or (os.altsep and os.altsep in safe_name):
+            print(f"Security Warning: Path separator in filename blocked: {filename}")
+            return None
+        
+        # Construct the full path
+        file_path = self.download_path / safe_name
+        
+        # Resolve the path and ensure it's within the download directory
+        try:
+            resolved_path = file_path.resolve()
+            resolved_download = self.download_path.resolve()
+            
+            # Check that the resolved path is within the download directory
+            # Use os.path.commonpath to verify the paths share the same base
+            try:
+                common = os.path.commonpath([str(resolved_path), str(resolved_download)])
+                if common != str(resolved_download):
+                    print(f"Security Warning: Path traversal attempt blocked: {filename}")
+                    return None
+            except ValueError:
+                # Paths are on different drives (Windows)
+                print(f"Security Warning: Path on different drive blocked: {filename}")
+                return None
+            
+            return resolved_path
+        except Exception as e:
+            print(f"Error validating path for {filename}: {e}")
+            return None
     
     def _is_video(self, doc) -> bool:
         """
@@ -354,9 +412,20 @@ class TelegramDownloader:
                     # Fall back to original filename or generated name
                     if not filename:
                         if original_filename:
-                            filename = original_filename
+                            # Sanitize original filename to prevent path traversal
+                            ext = Path(original_filename).suffix
+                            base = Path(original_filename).stem
+                            filename = self._sanitize_filename(base, ext)
+                            # If sanitization fails, use a safe generated name
+                            if not filename:
+                                ext = Path(original_filename).suffix or '.bin'
+                                filename = f"file_{message.id}{ext}"
                         else:
+                            # Use mime type for extension, with fallback to 'bin'
                             ext = doc.mime_type.split('/')[-1] if doc.mime_type else 'bin'
+                            # Limit extension length to prevent issues
+                            if len(ext) > 10:
+                                ext = 'bin'
                             filename = f"file_{message.id}.{ext}"
                     
                     # Check file type filter
@@ -388,7 +457,12 @@ class TelegramDownloader:
                         if quality:
                             file_info = f"{filename} ({doc.size / (1024 * 1024):.2f} MB, {quality})"
                     print(f"Downloading: {file_info}")
-                    file_path = self.download_path / filename
+                    
+                    # Validate path security
+                    file_path = self._validate_and_secure_path(filename)
+                    if not file_path:
+                        print(f"✗ Skipping {filename} (invalid or unsafe path)")
+                        continue
                     
                     try:
                         await message.download_media(file=str(file_path))
@@ -420,7 +494,12 @@ class TelegramDownloader:
                     
                     # Download the photo
                     print(f"Downloading: {filename}")
-                    file_path = self.download_path / filename
+                    
+                    # Validate path security
+                    file_path = self._validate_and_secure_path(filename)
+                    if not file_path:
+                        print(f"✗ Skipping {filename} (invalid or unsafe path)")
+                        continue
                     
                     try:
                         await message.download_media(file=str(file_path))
