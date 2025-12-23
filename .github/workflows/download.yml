@@ -1,0 +1,71 @@
+name: Telegram Downloader - Scheduled Run
+
+# This workflow can run the downloader on a schedule using GitHub Actions
+# Credentials are stored in GitHub Secrets for security
+
+on:
+  workflow_dispatch:  # Allow manual triggers
+    inputs:
+      channel:
+        description: 'Telegram channel (e.g., @channelname or channel ID)'
+        required: true
+        type: string
+      file_types:
+        description: 'File types to download (comma-separated, e.g., pdf,jpg,png)'
+        required: false
+        type: string
+      max_size:
+        description: 'Maximum file size in MB'
+        required: false
+        type: number
+  # Uncomment the schedule below to run automatically
+  # schedule:
+  #   - cron: '0 */6 * * *'  # Run every 6 hours
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create config file
+      run: |
+        cat > config.json << EOF
+        {
+          "api_id": "${{ secrets.TG_API_ID }}",
+          "api_hash": "${{ secrets.TG_API_HASH }}",
+          "phone": "${{ secrets.TG_PHONE }}",
+          "channel": "${{ github.event.inputs.channel || secrets.TG_CHANNEL }}",
+          "download_path": "./downloads",
+          "file_types": $(if [ -n "${{ github.event.inputs.file_types }}" ]; then echo '["${{ github.event.inputs.file_types }}"]' | sed 's/,/","/g'; else echo '[]'; fi),
+          "max_file_size_mb": ${{ github.event.inputs.max_size || 100 }}
+        }
+        EOF
+    
+    - name: Run Telegram Downloader
+      env:
+        TG_API_ID: ${{ secrets.TG_API_ID }}
+        TG_API_HASH: ${{ secrets.TG_API_HASH }}
+        TG_PHONE: ${{ secrets.TG_PHONE }}
+      run: |
+        python tg_downloader.py --limit 50
+    
+    - name: Upload downloaded files
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: telegram-downloads
+        path: downloads/
+        retention-days: 7
