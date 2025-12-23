@@ -6,5 +6,6 @@
   "download_path": "./downloads",
   "file_types": ["jpg", "png", "pdf", "mp4", "zip"],
   "max_file_size_mb": 100,
-  "keywords": ["report", "document"]
+  "keywords": ["report", "document"],
+  "video_quality": "high"
 }

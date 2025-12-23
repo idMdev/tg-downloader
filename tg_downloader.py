@@ -17,7 +17,7 @@ from typing import List, Set, Optional
 
 try:
     from telethon import TelegramClient
-    from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto
+    from telethon.tl.types import MessageMediaDocument, MessageMediaPhoto, DocumentAttributeVideo
 except ImportError:
     print("Error: Required packages not installed.")
     print("Please run: pip install -r requirements.txt")
@@ -30,7 +30,8 @@ class TelegramDownloader:
     def __init__(self, api_id: str, api_hash: str, phone: str, 
                  download_path: str = "./downloads",
                  history_file: str = "download_history.json",
-                 keywords: Optional[List[str]] = None):
+                 keywords: Optional[List[str]] = None,
+                 video_quality: Optional[str] = None):
         """
         Initialize the Telegram downloader
         
@@ -41,6 +42,7 @@ class TelegramDownloader:
             download_path: Directory to save downloaded files
             history_file: JSON file to track downloaded files
             keywords: List of keywords to filter files (case-insensitive)
+            video_quality: Video quality filter ('high', 'medium', 'low', or resolution like '1080p', '720p', '480p')
         """
         self.api_id = api_id
         self.api_hash = api_hash
@@ -50,6 +52,7 @@ class TelegramDownloader:
         self.downloaded_files: Set[int] = set()
         self.client = None
         self.keywords = [k.lower() for k in keywords] if keywords else None
+        self.video_quality = video_quality.lower() if video_quality else None
         
         # Create download directory if it doesn't exist
         self.download_path.mkdir(parents=True, exist_ok=True)
@@ -177,6 +180,103 @@ class TelegramDownloader:
         
         return filename
     
+    def _is_video(self, doc) -> bool:
+        """
+        Check if a document is a video
+        
+        Args:
+            doc: Document object from MessageMediaDocument
+        
+        Returns:
+            True if document is a video, False otherwise
+        """
+        # Check mime type
+        if doc.mime_type and doc.mime_type.startswith('video/'):
+            return True
+        
+        # Check for video attribute
+        for attr in doc.attributes:
+            if isinstance(attr, DocumentAttributeVideo):
+                return True
+        
+        return False
+    
+    def _get_video_quality(self, doc) -> Optional[str]:
+        """
+        Get video quality/resolution from document attributes
+        
+        Args:
+            doc: Document object from MessageMediaDocument
+        
+        Returns:
+            Quality string (e.g., '1080p', '720p') or None if not a video
+        """
+        for attr in doc.attributes:
+            if isinstance(attr, DocumentAttributeVideo):
+                height = attr.h
+                if height >= 2160:
+                    return '4k'
+                elif height >= 1440:
+                    return '1440p'
+                elif height >= 1080:
+                    return '1080p'
+                elif height >= 720:
+                    return '720p'
+                elif height >= 480:
+                    return '480p'
+                elif height >= 360:
+                    return '360p'
+                else:
+                    return '240p'
+        return None
+    
+    def _is_video_quality_allowed(self, doc) -> bool:
+        """
+        Check if video quality matches the filter
+        
+        Args:
+            doc: Document object from MessageMediaDocument
+        
+        Returns:
+            True if video quality is allowed or no filter specified, False otherwise
+        """
+        if not self.video_quality:
+            return True
+        
+        if not self._is_video(doc):
+            return True  # Not a video, no quality filter applies
+        
+        quality = self._get_video_quality(doc)
+        if not quality:
+            return True  # Can't determine quality, allow it
+        
+        # Parse the quality filter
+        quality_hierarchy = {
+            '4k': 2160,
+            '1440p': 1440,
+            '1080p': 1080,
+            '720p': 720,
+            '480p': 480,
+            '360p': 360,
+            '240p': 240
+        }
+        
+        filter_quality = self.video_quality
+        
+        # Map 'high', 'medium', 'low' to resolutions
+        if filter_quality == 'high':
+            filter_quality = '1080p'
+        elif filter_quality == 'medium':
+            filter_quality = '720p'
+        elif filter_quality == 'low':
+            filter_quality = '480p'
+        
+        # If filter is a specific resolution, check if video meets or exceeds it
+        if filter_quality in quality_hierarchy and quality in quality_hierarchy:
+            return quality_hierarchy[quality] >= quality_hierarchy[filter_quality]
+        
+        return True
+    
     async def connect(self):
         """Connect to Telegram"""
         session_name = f"session_{self.phone}"
@@ -206,6 +306,7 @@ class TelegramDownloader:
         print(f"File types filter: {file_types if file_types else 'All'}")
         print(f"Max file size: {max_size_mb if max_size_mb else 'No limit'} MB")
         print(f"Keywords filter: {self.keywords if self.keywords else 'None'}")
+        print(f"Video quality filter: {self.video_quality if self.video_quality else 'None'}")
         print(f"Checking last {limit} messages...\n")
         
         downloaded_count = 0
@@ -269,13 +370,24 @@ class TelegramDownloader:
                         print(f"Skipping {filename} (size {size_mb:.2f} MB exceeds limit)")
                         continue
                     
+                    # Check video quality filter
+                    if not self._is_video_quality_allowed(doc):
+                        quality = self._get_video_quality(doc)
+                        print(f"Skipping {filename} (video quality {quality} does not meet filter: {self.video_quality})")
+                        continue
+                    
                     # Check keyword filter
                     if not self._matches_keyword(filename, message.text):
                         print(f"Skipping {filename} (does not match keyword filter)")
                         continue
                     
                     # Download the file
-                    print(f"Downloading: {filename} ({doc.size / (1024 * 1024):.2f} MB)")
+                    file_info = f"{filename} ({doc.size / (1024 * 1024):.2f} MB)"
+                    if self._is_video(doc):
+                        quality = self._get_video_quality(doc)
+                        if quality:
+                            file_info = f"{filename} ({doc.size / (1024 * 1024):.2f} MB, {quality})"
+                    print(f"Downloading: {file_info}")
                     file_path = self.download_path / filename
                     
                     try:
@@ -372,6 +484,10 @@ Examples:
   # Filter by keywords (searches filename and message text)
   python tg_downloader.py --channel @mychannel --keywords report,summary,document
   
+  # Filter videos by quality
+  python tg_downloader.py --channel @mychannel --video-quality high
+  python tg_downloader.py --channel @mychannel --video-quality 1080p
+  
   # Use environment variables for credentials (recommended)
   export TG_API_ID=your_api_id
   export TG_API_HASH=your_api_hash
@@ -392,6 +508,8 @@ Examples:
                        help='Download destination directory (overrides config)')
     parser.add_argument('--max-size', type=float,
                        help='Maximum file size in MB (overrides config)')
+    parser.add_argument('--video-quality',
+                       help='Minimum video quality: high (1080p+), medium (720p+), low (480p+), or specific (1080p, 720p, 480p, 360p) (overrides config)')
     parser.add_argument('--limit', type=int, default=100,
                        help='Maximum number of messages to check (default: 100)')
     
@@ -439,13 +557,17 @@ Examples:
     # Get max file size
     max_size_mb = args.max_size or config.get('max_file_size_mb')
     
+    # Get video quality
+    video_quality = args.video_quality or config.get('video_quality')
+    
     # Create downloader instance
     downloader = TelegramDownloader(
         api_id=api_id,
         api_hash=api_hash,
         phone=phone,
         download_path=download_path,
-        keywords=keywords
+        keywords=keywords,
+        video_quality=video_quality
     )
     
     try:
