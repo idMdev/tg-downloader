@@ -3,7 +3,7 @@
 Telegram Channel File Downloader
 
 This script downloads files from a Telegram channel and tracks downloaded files
-to avoid duplicates. It supports filtering by file type and size.
+to avoid duplicates. It supports filtering by file type, size, and keywords.
 """
 
 import os
@@ -29,7 +29,8 @@ class TelegramDownloader:
     
     def __init__(self, api_id: str, api_hash: str, phone: str, 
                  download_path: str = "./downloads",
-                 history_file: str = "download_history.json"):
+                 history_file: str = "download_history.json",
+                 keywords: Optional[List[str]] = None):
         """
         Initialize the Telegram downloader
         
@@ -39,6 +40,7 @@ class TelegramDownloader:
             phone: Phone number associated with Telegram account
             download_path: Directory to save downloaded files
             history_file: JSON file to track downloaded files
+            keywords: List of keywords to filter files (case-insensitive)
         """
         self.api_id = api_id
         self.api_hash = api_hash
@@ -47,6 +49,7 @@ class TelegramDownloader:
         self.history_file = Path(history_file)
         self.downloaded_files: Set[int] = set()
         self.client = None
+        self.keywords = [k.lower() for k in keywords] if keywords else None
         
         # Create download directory if it doesn't exist
         self.download_path.mkdir(parents=True, exist_ok=True)
@@ -114,6 +117,28 @@ class TelegramDownloader:
         size_mb = size_bytes / (1024 * 1024)
         return size_mb <= max_size_mb
     
+    def _matches_keyword(self, filename: str, message_text: Optional[str]) -> bool:
+        """
+        Check if filename or message text contains any of the specified keywords
+        
+        Args:
+            filename: Name of the file
+            message_text: Text description from the message
+        
+        Returns:
+            True if any keyword matches or no keywords specified, False otherwise
+        """
+        if not self.keywords:
+            return True
+        
+        # Combine filename and message text for searching (case-insensitive)
+        search_text = filename.lower()
+        if message_text:
+            search_text += " " + message_text.lower()
+        
+        # Check if any keyword is found in the combined text
+        return any(keyword in search_text for keyword in self.keywords)
+    
     async def connect(self):
         """Connect to Telegram"""
         session_name = f"session_{self.phone}"
@@ -142,6 +167,7 @@ class TelegramDownloader:
         print(f"\nFetching messages from channel: {channel}")
         print(f"File types filter: {file_types if file_types else 'All'}")
         print(f"Max file size: {max_size_mb if max_size_mb else 'No limit'} MB")
+        print(f"Keywords filter: {self.keywords if self.keywords else 'None'}")
         print(f"Checking last {limit} messages...\n")
         
         downloaded_count = 0
@@ -189,6 +215,11 @@ class TelegramDownloader:
                         print(f"Skipping {filename} (size {size_mb:.2f} MB exceeds limit)")
                         continue
                     
+                    # Check keyword filter
+                    if not self._matches_keyword(filename, message.text):
+                        print(f"Skipping {filename} (does not match keyword filter)")
+                        continue
+                    
                     # Download the file
                     print(f"Downloading: {filename} ({doc.size / (1024 * 1024):.2f} MB)")
                     file_path = self.download_path / filename
@@ -207,6 +238,12 @@ class TelegramDownloader:
                     
                     # Check file type filter
                     if not self._is_allowed_file(filename, file_types):
+                        print(f"Skipping {filename} (file type not allowed)")
+                        continue
+                    
+                    # Check keyword filter
+                    if not self._matches_keyword(filename, message.text):
+                        print(f"Skipping {filename} (does not match keyword filter)")
                         continue
                     
                     # Download the photo
@@ -272,6 +309,9 @@ Examples:
   # Specify file types and destination
   python tg_downloader.py --channel @mychannel --types pdf,jpg,png --dest ./my_downloads
   
+  # Filter by keywords (searches filename and message text)
+  python tg_downloader.py --channel @mychannel --keywords report,summary,document
+  
   # Use environment variables for credentials (recommended)
   export TG_API_ID=your_api_id
   export TG_API_HASH=your_api_hash
@@ -286,6 +326,8 @@ Examples:
                        help='Channel username or ID (overrides config)')
     parser.add_argument('--types',
                        help='Comma-separated file types to download (e.g., pdf,jpg,png)')
+    parser.add_argument('--keywords',
+                       help='Comma-separated keywords to filter files (searches filename and message text)')
     parser.add_argument('--dest',
                        help='Download destination directory (overrides config)')
     parser.add_argument('--max-size', type=float,
@@ -327,6 +369,13 @@ Examples:
     elif config.get('file_types'):
         file_types = config.get('file_types')
     
+    # Get keywords
+    keywords = None
+    if args.keywords:
+        keywords = [k.strip() for k in args.keywords.split(',')]
+    elif config.get('keywords'):
+        keywords = config.get('keywords')
+    
     # Get max file size
     max_size_mb = args.max_size or config.get('max_file_size_mb')
     
@@ -335,7 +384,8 @@ Examples:
         api_id=api_id,
         api_hash=api_hash,
         phone=phone,
-        download_path=download_path
+        download_path=download_path,
+        keywords=keywords
     )
     
     try:
