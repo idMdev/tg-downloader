@@ -228,7 +228,7 @@ class TelegramDownloader:
         
         # Add extension
         filename = text + extension
-        print(filename)
+         print(f"File name is: {filename}")
         return filename
     
     def _get_safe_extension(self, mime_type: Optional[str], fallback: str = '.bin') -> str:
