@@ -6,8 +6,10 @@ A smart Telegram channel file downloader that automatically downloads files from
 
 - 🚀 **Automatic Updates**: Pull the latest script version from GitHub before each run
 - 📁 **Smart Duplicate Detection**: Tracks downloaded files to avoid re-downloading
+- 📝 **Intelligent Naming**: Files are automatically named using message text/captions for easy identification
 - 🎯 **File Type Filtering**: Download only specific file types (e.g., PDF, images, videos)
 - 📏 **Size Filtering**: Limit downloads by maximum file size
+- 🎬 **Video Quality Filtering**: Filter videos by resolution (1080p, 720p, 480p, etc.)
 - 🔍 **Keyword Filtering**: Filter files by keywords in filename or message text
 - 🔒 **Secure Credentials**: Store API keys in GitHub Secrets or environment variables
 - 📊 **Download History**: Maintains a JSON history of all downloaded files
@@ -77,6 +79,9 @@ Create a `config.json` file based on `config.example.json`:
 
 **Configuration Options:**
 - `keywords` (optional): Array of keywords to filter files. Files will only be downloaded if their filename or the message text contains at least one of these keywords (case-insensitive). Leave empty or omit to download all files.
+- `video_quality` (optional): Minimum video quality filter. Options: `"high"` (1080p+), `"medium"` (720p+), `"low"` (480p+), or specific resolution like `"1080p"`, `"720p"`, `"480p"`, `"360p"`. Videos below the specified quality will be skipped.
+
+**Note on Filenames:** Files are automatically named using the message text/caption from Telegram. The text is sanitized to remove invalid characters and shortened to prevent filesystem issues. If no text is available, the original filename is used.
 
 ### Method 2: Environment Variables (Recommended for Security)
 
@@ -107,6 +112,10 @@ python tg_downloader.py --channel @channelname --types pdf,jpg,png
 # Filter by keywords (searches filename and message text)
 python tg_downloader.py --channel @channelname --keywords report,summary,document
 
+# Filter videos by quality (high=1080p+, medium=720p+, low=480p+)
+python tg_downloader.py --channel @channelname --video-quality high
+python tg_downloader.py --channel @channelname --video-quality 720p
+
 # Specify custom download directory
 python tg_downloader.py --channel @channelname --dest ./my_downloads
 
@@ -118,6 +127,9 @@ python tg_downloader.py --channel @channelname --limit 500
 
 # Combine multiple filters
 python tg_downloader.py --channel @channelname --types pdf --keywords report,annual --max-size 20
+
+# Download only high-quality videos from a channel
+python tg_downloader.py --channel @videos --types mp4 --video-quality 1080p
 ```
 
 ### Auto-Update from GitHub
