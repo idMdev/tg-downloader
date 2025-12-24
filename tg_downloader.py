@@ -527,6 +527,12 @@ class TelegramDownloader:
             
             # Create channel-specific subdirectory
             safe_channel_name = self._sanitize_channel_name(channel_name)
+            
+            # If sanitization resulted in "unknown_channel", try to use the channel ID
+            if safe_channel_name == "unknown_channel" and hasattr(entity, 'id'):
+                safe_channel_name = f"channel_{entity.id}"
+                print(f"Channel name was empty after sanitization, using channel ID: {safe_channel_name}")
+            
             self.current_channel_path = self.root_download_path / safe_channel_name
             self.current_channel_path.mkdir(parents=True, exist_ok=True)
             print(f"Files will be downloaded to: {self.current_channel_path}\n")
