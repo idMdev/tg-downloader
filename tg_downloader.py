@@ -33,6 +33,9 @@ class TelegramDownloader:
     # Maximum allowed length for file extensions
     MAX_EXTENSION_LENGTH = 10
     
+    # Maximum allowed length for channel directory names
+    MAX_CHANNEL_NAME_LENGTH = 100
+    
     # ffmpeg encoding constants
     FFMPEG_CRF = 23  # Constant Rate Factor for video quality (lower = better quality, 18-28 is reasonable range)
     FFMPEG_TIMEOUT = 300  # Timeout in seconds for ffmpeg processing (5 minutes)
@@ -210,12 +213,12 @@ class TelegramDownloader:
         name = re.sub(r'[ _]+', '_', name)
         
         # Ensure it's not empty after sanitization
-        if not name or not name.strip():
+        if not name:
             return "unknown_channel"
         
-        # Limit length to 100 characters for directory names
-        if len(name) > 100:
-            name = name[:100].strip('_')
+        # Limit length for directory names
+        if len(name) > self.MAX_CHANNEL_NAME_LENGTH:
+            name = name[:self.MAX_CHANNEL_NAME_LENGTH].strip('_')
         
         return name
     
