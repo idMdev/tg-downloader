@@ -77,7 +77,7 @@ class TelegramDownloader:
             api_id: Telegram API ID
             api_hash: Telegram API hash
             phone: Phone number associated with Telegram account
-            download_path: Directory to save downloaded files
+            download_path: Root directory to save downloaded files (channel subdirectories will be created)
             history_file: JSON file to track downloaded files
             keywords: List of keywords to filter files (case-insensitive)
             output_quality: Target video quality for downsizing after download (e.g., '720p', '480p', '360p')
@@ -85,15 +85,16 @@ class TelegramDownloader:
         self.api_id = api_id
         self.api_hash = api_hash
         self.phone = phone
-        self.download_path = Path(download_path)
+        self.root_download_path = Path(download_path)
         self.history_file = Path(history_file)
         self.downloaded_files: Set[int] = set()
         self.client = None
         self.keywords = [k.lower() for k in keywords] if keywords else None
         self.output_quality = output_quality.lower() if output_quality else None
+        self.current_channel_path = None  # Will be set when downloading from a specific channel
         
-        # Create download directory if it doesn't exist
-        self.download_path.mkdir(parents=True, exist_ok=True)
+        # Create root download directory if it doesn't exist
+        self.root_download_path.mkdir(parents=True, exist_ok=True)
         
         # Load download history
         self._load_history()
@@ -179,6 +180,44 @@ class TelegramDownloader:
         
         # Check if any keyword is found in the combined text
         return any(keyword in search_text for keyword in self.keywords)
+    
+    def _sanitize_channel_name(self, channel_name: str) -> str:
+        """
+        Convert channel name to a safe directory name
+        
+        Args:
+            channel_name: Channel name or title to convert
+        
+        Returns:
+            Sanitized directory name
+        """
+        if not channel_name or not channel_name.strip():
+            return "unknown_channel"
+        
+        # Remove @ prefix if present
+        name = channel_name.strip().lstrip('@')
+        
+        # Replace invalid filesystem characters with underscores
+        invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\n', '\r']
+        for char in invalid_chars:
+            name = name.replace(char, '_')
+        
+        # Remove path traversal components
+        name = name.replace('..', '_')
+        name = name.lstrip('.')
+        
+        # Replace multiple spaces/underscores with single underscore
+        name = re.sub(r'[ _]+', '_', name)
+        
+        # Ensure it's not empty after sanitization
+        if not name or not name.strip():
+            return "unknown_channel"
+        
+        # Limit length to 100 characters for directory names
+        if len(name) > 100:
+            name = name[:100].strip('_')
+        
+        return name
     
     def _sanitize_filename(self, text: str, extension: str, max_length: int = 150) -> str:
         """
@@ -272,8 +311,13 @@ class TelegramDownloader:
             filename: The filename to validate
         
         Returns:
-            Secure Path object within download directory, or None if unsafe
+            Secure Path object within channel's download directory, or None if unsafe
         """
+        # Ensure we have a channel path set
+        if not self.current_channel_path:
+            print(f"Error: Channel path not set")
+            return None
+        
         # Get just the filename component (remove any path separators)
         safe_name = os.path.basename(filename)
         
@@ -282,25 +326,25 @@ class TelegramDownloader:
             print(f"Security Warning: Path separator in filename blocked: {filename}")
             return None
         
-        # Construct the full path
-        file_path = self.download_path / safe_name
+        # Construct the full path within the channel's directory
+        file_path = self.current_channel_path / safe_name
         
-        # Resolve the path and ensure it's within the download directory
+        # Resolve the path and ensure it's within the channel's download directory
         try:
             resolved_path = file_path.resolve()
-            resolved_download = self.download_path.resolve()
+            resolved_channel = self.current_channel_path.resolve()
             
             # Use is_relative_to if available (Python 3.9+), otherwise use commonpath
             try:
                 # Python 3.9+ method
-                if not resolved_path.is_relative_to(resolved_download):
+                if not resolved_path.is_relative_to(resolved_channel):
                     print(f"Security Warning: Path traversal attempt blocked: {filename}")
                     return None
             except AttributeError:
                 # Fallback for Python 3.7-3.8
                 try:
-                    common = os.path.commonpath([str(resolved_path), str(resolved_download)])
-                    if common != str(resolved_download):
+                    common = os.path.commonpath([str(resolved_path), str(resolved_channel)])
+                    if common != str(resolved_channel):
                         print(f"Security Warning: Path traversal attempt blocked: {filename}")
                         return None
                 except ValueError:
@@ -469,6 +513,23 @@ class TelegramDownloader:
             
             entity = await self.client.get_entity(entity_input)
             print(f"Successfully retrieved channel entity: {entity.title if hasattr(entity, 'title') else channel}")
+            
+            # Extract channel name for directory
+            if hasattr(entity, 'title') and entity.title:
+                channel_name = entity.title
+            elif hasattr(entity, 'username') and entity.username:
+                channel_name = entity.username
+            else:
+                # Fallback to using the input channel identifier
+                channel_name = str(channel).lstrip('@')
+            
+            print(f"Using channel name for directory: {channel_name}")
+            
+            # Create channel-specific subdirectory
+            safe_channel_name = self._sanitize_channel_name(channel_name)
+            self.current_channel_path = self.root_download_path / safe_channel_name
+            self.current_channel_path.mkdir(parents=True, exist_ok=True)
+            print(f"Files will be downloaded to: {self.current_channel_path}\n")
             
             # Iterate through messages
             print(f"Starting to iterate through messages (limit: {limit})...")

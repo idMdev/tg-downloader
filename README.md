@@ -84,11 +84,14 @@ Create a `config.json` file based on `config.example.json`:
 ```
 
 **Configuration Options:**
+- `download_path`: Root directory where channel subdirectories will be created (e.g., `"./downloads"`). Each channel's files will be saved in a subdirectory named after the channel.
 - `channel`: Can be either a channel username (e.g., `"@channelname"`) or a numeric channel ID (e.g., `1234567890` or `-1001234567890`). Both formats are supported.
 - `keywords` (optional): Array of keywords to filter files. Files will only be downloaded if their filename or the message text contains at least one of these keywords (case-insensitive). Leave empty or omit to download all files.
 - `output_quality` (optional): Target quality for downsizing videos after download using ffmpeg. Options: `"720p"`, `"480p"`, `"360p"`, `"240p"`, etc. Videos will be downsized to the specified resolution. Requires ffmpeg to be installed.
 
 **Note on Filenames:** Files are automatically named using the message text/caption from Telegram. The text is sanitized to remove invalid characters and shortened to prevent filesystem issues. If no text is available, the original filename is used.
+
+**Note on Directory Structure:** Files are organized by channel. When you download from a channel, a subdirectory will be created under the root download path with the channel's name (or title). For example, if `download_path` is `"./downloads"` and you download from a channel named "Tech News", files will be saved to `./downloads/Tech_News/`.
 
 ### Method 2: Environment Variables (Recommended for Security)
 
@@ -251,11 +254,16 @@ tg-downloader/
 ├── update_script.sh          # Auto-update script (Linux/Mac)
 ├── update_script.bat         # Auto-update script (Windows)
 ├── download_history.json     # Downloaded files tracking (auto-generated)
-├── downloads/                # Default download directory (not tracked in git)
+├── downloads/                # Default root download directory (not tracked in git)
+│   ├── Channel_Name_1/       # Channel-specific subdirectory
+│   ├── Channel_Name_2/       # Another channel's subdirectory
+│   └── ...
 └── .github/
     └── workflows/
         └── download.yml      # GitHub Actions workflow
 ```
+
+**Note:** Each channel's files are automatically organized into subdirectories named after the channel. The channel name is sanitized to ensure it's safe for use as a directory name.
 
 ## Troubleshooting
 
@@ -306,10 +314,16 @@ Create a wrapper script:
 
 ```bash
 #!/bin/bash
-python tg_downloader.py --channel @channel1 --types pdf --dest ./downloads/channel1
-python tg_downloader.py --channel @channel2 --types jpg,png --dest ./downloads/channel2
-python tg_downloader.py --channel @channel3 --dest ./downloads/channel3
+# Each channel will create its own subdirectory under the root path
+python tg_downloader.py --channel @channel1 --types pdf --dest ./downloads
+python tg_downloader.py --channel @channel2 --types jpg,png --dest ./downloads
+python tg_downloader.py --channel @channel3 --dest ./downloads
 ```
+
+This will create:
+- `./downloads/channel1/` (for channel1 files)
+- `./downloads/channel2/` (for channel2 files)
+- `./downloads/channel3/` (for channel3 files)
 
 ### Filter by file type and size
 
